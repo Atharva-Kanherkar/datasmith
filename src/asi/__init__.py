@@ -3,6 +3,7 @@
 from asi.core import AgenticSelfInstruct, AcceptancePolicy
 from asi.export import (
     ExportResult,
+    HFDestinationConfig,
     export_destinations,
     export_examples,
     export_formats,
@@ -40,6 +41,7 @@ __all__ = [
     "DeterministicSolver",
     "Example",
     "ExportResult",
+    "HFDestinationConfig",
     "export_destinations",
     "export_examples",
     "export_formats",

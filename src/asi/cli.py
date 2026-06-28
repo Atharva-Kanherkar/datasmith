@@ -75,7 +75,9 @@ def main(argv: list[str] | None = None) -> int:
         default="local",
         help=f"Export destination: {', '.join(export_destinations())}",
     )
-    export_parser.add_argument("--output", required=True)
+    export_parser.add_argument("--output")
+    export_parser.add_argument("--repo", help="Hugging Face dataset repo, e.g. user/name")
+    export_parser.add_argument("--private", action="store_true", help="Create a private HF dataset repo")
     export_parser.add_argument(
         "--conversational",
         action="store_true",
@@ -137,7 +139,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "export":
         try:
-            examples = read_jsonl(_export_input_path(args.from_path))
+            source_path = _export_input_path(args.from_path)
+            examples = read_jsonl(source_path)
             result = export_examples(
                 examples,
                 format_name=args.format,
@@ -145,10 +148,17 @@ def main(argv: list[str] | None = None) -> int:
                 output=args.output,
                 conversational=args.conversational,
                 chat_template=args.chat_template,
+                repo=args.repo,
+                private=args.private,
+                card_metadata={
+                    "source": str(args.from_path),
+                    "run_summary": _read_run_summary(args.from_path),
+                },
             )
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
-        print(result.summary(args.output))
+        target = args.repo if args.destination == "hf" else args.output
+        print(result.summary(target))
         return 0
     return 1
 
@@ -163,6 +173,20 @@ def _export_input_path(source: str | Path) -> Path:
             raise SystemExit(f"export source directory is missing accepted.jsonl: {path}")
         return accepted
     return path
+
+
+def _read_run_summary(source: str | Path) -> dict[str, object] | None:
+    path = Path(source)
+    if not path.is_dir():
+        return None
+    summary = path / "summary.json"
+    if not summary.exists():
+        return None
+    try:
+        data = json.loads(summary.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _write_starter_config(path: Path) -> None:

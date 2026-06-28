@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +20,7 @@ DEFAULT_PROMPT_KEYS = (
     "prompt",
 )
 FormatSerializer = Callable[["ExportOptions", Example], Iterable[Mapping[str, Any]]]
-DestinationWriter = Callable[[Iterable[Mapping[str, Any]], str | Path], int]
+DestinationWriter = Callable[[Iterable[Mapping[str, Any]], Any], int]
 PROVENANCE_KEYS = ("gap", "weak_score", "strong_score", "quality", "tags")
 CHAT_TEMPLATES = ("chatml", "sharegpt")
 
@@ -53,6 +54,14 @@ class ExportResult:
         if details:
             message += f" ({'; '.join(details)})"
         return message
+
+
+@dataclass(frozen=True, slots=True)
+class HFDestinationConfig:
+    repo: str
+    private: bool = False
+    token: str | None = None
+    card_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 class SkipExample(Exception):
@@ -96,9 +105,13 @@ def export_examples(
     *,
     format_name: str,
     destination_name: str,
-    output: str | Path,
+    output: str | Path | None = None,
     conversational: bool = False,
     chat_template: str = "sharegpt",
+    repo: str | None = None,
+    private: bool = False,
+    token: str | None = None,
+    card_metadata: Mapping[str, Any] | None = None,
 ) -> ExportResult:
     chat_template = _validate_chat_template(chat_template)
     if conversational and format_name != "dpo":
@@ -109,7 +122,15 @@ def export_examples(
     writer = get_destination(destination_name)
     stats = _ExportStats()
     options = ExportOptions(conversational=conversational, chat_template=chat_template)
-    records = writer(_serialize_examples(examples, serializer, options, stats, format_name), output)
+    target = _destination_target(
+        destination_name,
+        output=output,
+        repo=repo,
+        private=private,
+        token=token,
+        card_metadata={"format": format_name, **dict(card_metadata or {})},
+    )
+    records = writer(_serialize_examples(examples, serializer, options, stats, format_name), target)
     return ExportResult(
         records=records,
         skipped=stats.skipped,
@@ -210,6 +231,8 @@ def sft_serializer(options: ExportOptions, example: Example) -> Iterable[JSON]:
 
 
 def write_local_jsonl(records: Iterable[Mapping[str, Any]], output: str | Path) -> int:
+    if isinstance(output, HFDestinationConfig):
+        raise ValueError("local export requires --output")
     target = Path(output)
     target.parent.mkdir(parents=True, exist_ok=True)
     count = 0
@@ -220,6 +243,39 @@ def write_local_jsonl(records: Iterable[Mapping[str, Any]], output: str | Path) 
     return count
 
 
+def write_hf_dataset(records: Iterable[Mapping[str, Any]], output: Any) -> int:
+    if not isinstance(output, HFDestinationConfig):
+        raise ValueError("hf export requires --repo")
+    token = _resolve_hf_token(output.token)
+    hf_api = _load_hf_api()
+    payload = list(records)
+    jsonl = "".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n" for record in payload)
+    card = _dataset_card(output, record_count=len(payload))
+    api = hf_api(token=token)
+    api.create_repo(
+        repo_id=output.repo,
+        repo_type="dataset",
+        private=output.private,
+        exist_ok=True,
+        token=token,
+    )
+    api.upload_file(
+        path_or_fileobj=jsonl.encode("utf-8"),
+        path_in_repo="data/train.jsonl",
+        repo_id=output.repo,
+        repo_type="dataset",
+        token=token,
+    )
+    api.upload_file(
+        path_or_fileobj=card.encode("utf-8"),
+        path_in_repo="README.md",
+        repo_id=output.repo,
+        repo_type="dataset",
+        token=token,
+    )
+    return len(payload)
+
+
 FORMAT_REGISTRY: dict[str, FormatSerializer] = {
     "dpo": dpo_serializer,
     "messages": messages_serializer,
@@ -228,6 +284,7 @@ FORMAT_REGISTRY: dict[str, FormatSerializer] = {
     "sft": sft_serializer,
 }
 DESTINATION_REGISTRY: dict[str, DestinationWriter] = {
+    "hf": write_hf_dataset,
     "local": write_local_jsonl,
 }
 
@@ -248,6 +305,105 @@ def _serialize_examples(
         if format_name == "sft" and _uses_prompt_json_fallback(example):
             stats.notice("prompt JSON fallback")
         yield from records
+
+
+def _destination_target(
+    destination_name: str,
+    *,
+    output: str | Path | None,
+    repo: str | None,
+    private: bool,
+    token: str | None,
+    card_metadata: Mapping[str, Any],
+) -> Any:
+    if destination_name == "hf":
+        if not repo:
+            raise ValueError("--repo is required when using --to hf")
+        return HFDestinationConfig(
+            repo=repo,
+            private=private,
+            token=token,
+            card_metadata=card_metadata,
+        )
+    if output is None:
+        raise ValueError("--output is required when using --to local")
+    return output
+
+
+def _load_hf_api() -> type[Any]:
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as exc:
+        raise ValueError(
+            "Hugging Face export requires optional dependencies. "
+            "Install with: pip install datasmith[hf]"
+        ) from exc
+    return HfApi
+
+
+def _load_hf_login_token() -> str | None:
+    try:
+        from huggingface_hub import get_token
+    except ImportError as exc:
+        raise ValueError(
+            "Hugging Face export requires optional dependencies. "
+            "Install with: pip install datasmith[hf]"
+        ) from exc
+    return get_token()
+
+
+def _resolve_hf_token(explicit_token: str | None) -> str:
+    token = explicit_token or os.environ.get("HF_TOKEN") or _load_hf_login_token()
+    if not token:
+        raise ValueError("HF_TOKEN is required for --to hf. Set HF_TOKEN or run huggingface-cli login.")
+    return token
+
+
+def _dataset_card(config: HFDestinationConfig, *, record_count: int) -> str:
+    metadata = dict(config.card_metadata)
+    run_summary = metadata.get("run_summary")
+    lines = [
+        "---",
+        "license: mit",
+        "task_categories:",
+        "- text-generation",
+        "---",
+        "",
+        "# DataSmith Dataset",
+        "",
+        "Generated by DataSmith.",
+        "",
+        "## Export",
+        "",
+        f"- format: `{metadata.get('format', 'unknown')}`",
+        f"- records: {record_count}",
+        f"- private: {str(config.private).lower()}",
+    ]
+    if metadata.get("source"):
+        lines.append(f"- source: `{metadata['source']}`")
+    if isinstance(run_summary, Mapping):
+        lines.extend(
+            [
+                "",
+                "## Run Provenance",
+                "",
+                f"- accepted: {run_summary.get('accepted', 'unknown')}",
+                f"- rejected: {run_summary.get('rejected', 'unknown')}",
+                f"- attempts: {run_summary.get('attempts', 'unknown')}",
+                f"- average gap: {run_summary.get('avg_gap', 'unknown')}",
+                f"- target count: {run_summary.get('target_count', 'unknown')}",
+                f"- target met: {run_summary.get('target_met', 'unknown')}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Acceptance Policy",
+            "",
+            "Acceptance policy thresholds are not recorded in current run summaries.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _stringify_prompt_value(value: Any) -> str:

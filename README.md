@@ -102,6 +102,12 @@ orchestration, acceptance policies, artifacts, CLI, and tests.
 pip install datasmith
 ```
 
+Install the Hugging Face Hub export extra when you want to push datasets:
+
+```bash
+pip install "datasmith[hf]"
+```
+
 For local development:
 
 ```bash
@@ -196,6 +202,17 @@ SFT export writes a single-turn conversation with an optional system turn from
 `metadata["system"]`, a user turn from `render_prompt(example)`, and an assistant turn from
 `example.expected` or the first strong-solver attempt when no expected answer is present. Examples
 without either assistant source are skipped and counted.
+
+Use `--to hf` to push any export format to the Hugging Face Hub:
+
+```bash
+export HF_TOKEN=...
+datasmith export --from runs/demo --format dpo --to hf --repo your-name/datasmith-demo --private
+```
+
+The Hugging Face destination uploads `data/train.jsonl` plus a generated dataset card with DataSmith
+provenance. The core install stays dependency-free; use `pip install "datasmith[hf]"` for this
+destination.
 
 The seed-construction command writes:
 
