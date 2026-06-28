@@ -16,11 +16,12 @@ paper's practical weak-vs-strong implementation:
 - accepted examples should be solvable by the strong solver while exposing weaknesses in the weak
   solver
 
-This package implements that inner loop as a provider-agnostic SDK.
+This package implements that inner loop as a provider-agnostic SDK, plus a seed-construction stage
+that can bootstrap initial seeds from a domain brief and search signals.
 
 The important implementation boundary is the weak/strong pressure test. The SDK can produce and
-preserve candidate examples, solver attempts, judge feedback, rejection reasons, and accepted
-examples. It does not train the weak solver or optimize the data scientist agent itself.
+preserve seed examples, candidate examples, solver attempts, judge feedback, rejection reasons, and
+accepted examples. It does not train the weak solver or optimize the data scientist agent itself.
 
 ## What We Do Not Claim
 
@@ -41,6 +42,7 @@ Compared with classic Self-Instruct style scripts, this package focuses on:
 - OTLP and span JSONL ingestion
 - deterministic local models for tests and tutorials
 - CLI outputs that can feed fine-tuning, eval, RL, or custom review workflows
+- a seed-constructor agent that is the only stage designed to receive web-search signals
 
 ## Practical Gaps Found While Translating The Paper
 
@@ -56,6 +58,8 @@ The paper's loop assumes several components that are not universal in developer 
   sensitive values. The SDK preserves metadata by design; redaction belongs upstream.
 - Dataset-level quality. This package scores one candidate at a time. Diversity, deduplication,
   contamination checks, and train/test split hygiene still need a downstream workflow.
+- Search governance. Seed construction can use web-search signals, but production users still need
+  their own search provider, allowlist, citation policy, and data-retention controls.
 
 ## Use Cases That Fit The Loop
 

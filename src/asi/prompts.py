@@ -11,7 +11,7 @@ def compact_json(value: object) -> str:
 
 def challenger_prompt(seeds: list[Example], feedback: list[str], target_count: int) -> str:
     lines = [
-        "You are the challenger in an Agentic Self-Instruct synthetic data loop.",
+        "You are the challenger in the DataSmith weak-vs-strong synthetic data loop.",
         "Create one challenging, realistic training example as strict JSON:",
         '{"input": {...}, "expected": {...}, "metadata": {"tags": []}}',
         "The example should be solvable by a strong model but likely difficult for a weaker model.",
@@ -33,7 +33,7 @@ def challenger_prompt(seeds: list[Example], feedback: list[str], target_count: i
 def solver_prompt(role: str, candidate: Example) -> str:
     return "\n".join(
         [
-            f"You are the {role} solver in an Agentic Self-Instruct loop.",
+            f"You are the {role} solver in the DataSmith weak-vs-strong loop.",
             "Solve the task. Return only your final answer.",
             "Do not mention dataset generation, judging, or hidden references.",
             "",
@@ -49,7 +49,7 @@ def judge_prompt(
     strong_attempts: list[SolverAttempt],
 ) -> str:
     lines = [
-        "You are the judge in an Agentic Self-Instruct synthetic data loop.",
+        "You are the judge in the DataSmith weak-vs-strong synthetic data loop.",
         "Score whether the candidate is high quality and whether strong solvers outperform weak solvers.",
         "Return only JSON with this shape:",
         '{"verdict":"accept|reject","weak_score":0.0,"strong_score":1.0,"gap":0.0,'

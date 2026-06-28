@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Agentic Self-Instruct.
+Thanks for helping improve DataSmith.
 
 ## Development
 

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from asi.seed_constructor import SeedConstructionResult
 from asi.types import Example, RunResult
 
 
@@ -37,6 +38,29 @@ def export_run_result(result: RunResult, output_dir: str | Path) -> None:
     with (output / "rejected.jsonl").open("w", encoding="utf-8") as handle:
         for item in result.rejected:
             handle.write(json.dumps(item.to_dict(), ensure_ascii=False, sort_keys=True) + "\n")
+    (output / "summary.json").write_text(
+        json.dumps(result.summary(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def export_seed_construction_result(result: SeedConstructionResult, output_dir: str | Path) -> None:
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    write_jsonl(output / "seeds.jsonl", result.accepted)
+    with (output / "rejected-seeds.jsonl").open("w", encoding="utf-8") as handle:
+        for item in result.rejected:
+            handle.write(json.dumps(item.to_dict(), ensure_ascii=False, sort_keys=True) + "\n")
+    (output / "signals.json").write_text(
+        json.dumps(
+            [signal.to_dict() for signal in result.signals],
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     (output / "summary.json").write_text(
         json.dumps(result.summary(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

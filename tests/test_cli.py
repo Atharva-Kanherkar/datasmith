@@ -63,3 +63,27 @@ def test_cli_run_local_demo_writes_outputs(tmp_path) -> None:
     )
     assert (output_dir / "accepted.jsonl").exists()
     assert (output_dir / "summary.json").exists()
+
+
+def test_cli_construct_seeds_local_demo_writes_seed_outputs(tmp_path) -> None:
+    output_dir = tmp_path / "seed-run"
+
+    assert (
+        main(
+            [
+                "construct-seeds",
+                "--domain",
+                "legal refund policy reasoning",
+                "--output-dir",
+                str(output_dir),
+                "--target-count",
+                "1",
+                "--local-demo",
+            ]
+        )
+        == 0
+    )
+    assert (output_dir / "seeds.jsonl").exists()
+    assert (output_dir / "rejected-seeds.jsonl").exists()
+    assert (output_dir / "signals.json").exists()
+    assert (output_dir / "summary.json").exists()

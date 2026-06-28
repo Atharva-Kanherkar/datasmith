@@ -5,13 +5,26 @@ import json
 from pathlib import Path
 
 from asi.core import AgenticSelfInstruct
-from asi.io import export_run_result, read_jsonl, write_jsonl
-from asi.models import DeterministicChallenger, DeterministicJudge, DeterministicSolver
+from asi.io import (
+    export_run_result,
+    export_seed_construction_result,
+    read_jsonl,
+    write_jsonl,
+)
+from asi.models import (
+    DeterministicChallenger,
+    DeterministicJudge,
+    DeterministicSearchClient,
+    DeterministicSeedConstructor,
+    DeterministicSeedJudge,
+    DeterministicSolver,
+)
 from asi.otel import examples_from_otlp, examples_from_span_jsonl
+from asi.seed_constructor import SeedConstructor
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="asi", description="Agentic Self-Instruct SDK CLI")
+    parser = argparse.ArgumentParser(prog="datasmith", description="DataSmith SDK CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init", help="Write a starter config")
@@ -27,7 +40,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Input format: OTLP JSON export or flattened span JSONL",
     )
 
-    run_parser = subparsers.add_parser("run", help="Run Agentic Self-Instruct")
+    construct_parser = subparsers.add_parser(
+        "construct-seeds",
+        help="Construct initial seed examples from a domain brief and search signals",
+    )
+    construct_parser.add_argument("--domain", required=True)
+    construct_parser.add_argument("--output-dir", required=True)
+    construct_parser.add_argument("--target-count", type=int, default=5)
+    construct_parser.add_argument("--query", action="append", default=[])
+    construct_parser.add_argument("--local-demo", action="store_true", help="Use deterministic local agents")
+
+    run_parser = subparsers.add_parser("run", help="Run the weak-vs-strong data generation loop")
     run_parser.add_argument("--seeds", required=True)
     run_parser.add_argument("--output-dir", required=True)
     run_parser.add_argument("--target-count", type=int, default=10)
@@ -47,6 +70,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         write_jsonl(args.output, examples)
         print(f"wrote {len(examples)} seed examples to {args.output}")
+        return 0
+    if args.command == "construct-seeds":
+        if not args.local_demo:
+            raise SystemExit(
+                "--local-demo is required until search/model provider config is supplied"
+            )
+        constructor = SeedConstructor(
+            search_client=DeterministicSearchClient(),
+            constructor=DeterministicSeedConstructor(),
+            judge=DeterministicSeedJudge(),
+        )
+        result = constructor.run(
+            domain=args.domain,
+            target_count=args.target_count,
+            queries=args.query or None,
+        )
+        export_seed_construction_result(result, args.output_dir)
+        print(json.dumps(result.summary(), indent=2, sort_keys=True))
         return 0
     if args.command == "run":
         if not args.local_demo:

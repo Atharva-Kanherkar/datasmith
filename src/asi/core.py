@@ -127,7 +127,7 @@ class AgenticSelfInstruct:
             if self.policy.accepts(verdict):
                 candidate.metadata = {
                     **candidate.metadata,
-                    "generator": "agentic-self-instruct",
+                    "generator": "datasmith",
                     "judge": verdict.to_dict(),
                     "weak_attempts": [attempt.to_dict() for attempt in weak_attempts],
                     "strong_attempts": [attempt.to_dict() for attempt in strong_attempts],

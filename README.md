@@ -1,18 +1,21 @@
 # DataSmith
 
 DataSmith is a provider-agnostic Python SDK and CLI for building synthetic training and evaluation
-datasets from seeds, production traces, and domain documents.
+datasets from domain briefs, web-grounded seed construction, production traces, and source
+documents.
 
-The library implements the practical weak-vs-strong data generation loop described in Meta FAIR's
-Autodata work. A challenger model proposes candidate examples, weak and strong solvers attempt them,
-and a judge accepts examples that are high quality and expose a useful capability gap.
+The library implements two stages: a seed-constructor agent that can use web-search signals to
+bootstrap initial seed examples, then the practical weak-vs-strong data generation loop described in
+Meta FAIR's Autodata work. The search capability is isolated to seed construction; the challenger,
+solvers, and downstream judge operate only on the constructed seeds and provided artifacts.
 
-The current package name is `agentic-self-instruct`, and the Python import is `asi`.
+The Python import remains `asi` for compatibility. The command-line entrypoint is available as both
+`datasmith` and `asi`.
 
 ## Overview
 
-Classic self-instruct pipelines ask a model to generate examples. DataSmith adds a validation loop:
-the generated example must separate a weak solver from a stronger solver before it is accepted.
+Classic self-instruct pipelines assume you already have seed examples. DataSmith can now bootstrap
+those seeds first, then run the weak-vs-strong validation loop.
 
 This is useful for creating data that is not merely synthetic, but targeted: examples should be
 grounded in your source material, difficult for the model you want to improve, and still solvable by
@@ -20,21 +23,26 @@ a stronger model, stronger prompt, higher-compute path, or expert reference.
 
 ```mermaid
 flowchart TD
-    A[Seeds and grounding] --> B[Challenger]
-    B --> C[Candidate example]
-    C --> D[Weak solver]
-    C --> E[Strong solver]
-    D --> F[Judge]
-    E --> F
-    F --> G{Accept?}
-    G -- yes --> H[Dataset example]
-    G -- no --> I[Feedback]
-    I --> B
+    A[Domain brief] --> B[Seed constructor]
+    B -->|uses web-search signals| C[Seed judge]
+    C -->|accepted seeds| D[Challenger]
+    D --> E[Candidate example]
+    E --> F[Weak solver]
+    E --> G[Strong solver]
+    F --> H[Data judge]
+    G --> H
+    H --> I{Accept?}
+    I -- yes --> J[Dataset example]
+    I -- no --> K[Feedback]
+    K --> D
 ```
 
 ## Core Concepts
 
-DataSmith exposes four model roles through one simple model protocol.
+DataSmith exposes one seed-construction stage and four data-generation roles.
+
+- `seed_constructor`: uses domain briefs and web-search signals to create initial seed examples
+- `seed_judge`: scores seed examples for grounding, specificity, and usefulness
 
 - `challenger`: generates candidate examples from seeds and prior judge feedback
 - `weak_solver`: represents the model, prompt, or low-compute path you want to improve
@@ -43,13 +51,13 @@ DataSmith exposes four model roles through one simple model protocol.
 
 ```mermaid
 flowchart LR
-    Challenger[Challenger] -->|writes task + reference| Example[Candidate]
-    Example -->|same input only| Weak[Weak solver]
-    Example -->|same input only| Strong[Strong solver]
-    Weak --> Attempts[Solver attempts]
-    Strong --> Attempts
-    Attempts --> Judge[Judge]
-    Judge -->|accept / reject + feedback| Artifacts[JSONL artifacts]
+    Brief[Domain brief] --> Search[Search signals]
+    Search --> SeedConstructor[Seed constructor]
+    SeedConstructor --> SeedJudge[Seed judge]
+    SeedJudge --> Seeds[Seed JSONL]
+    Seeds --> Challenger[Challenger]
+    Challenger --> DataJudge[Weak / strong / judge loop]
+    DataJudge --> Artifacts[Dataset artifacts]
 ```
 
 Accepted and rejected candidates are both preserved. Rejections include reason codes, solver
@@ -58,6 +66,7 @@ attempts, judge output, and feedback for later challenger attempts.
 ## Features
 
 - Provider-agnostic model interface
+- Web-grounded seed-construction primitive
 - Deterministic local demo models for tests and tutorials
 - Weak and strong solver rollouts
 - Judge-driven acceptance policy
@@ -85,14 +94,14 @@ orchestration, acceptance policies, artifacts, CLI, and tests.
 ## Install
 
 ```bash
-pip install agentic-self-instruct
+pip install datasmith
 ```
 
 For local development:
 
 ```bash
-git clone https://github.com/Atharva-Kanherkar/agentic-self-instruct
-cd agentic-self-instruct
+git clone https://github.com/Atharva-Kanherkar/datasmith
+cd datasmith
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
@@ -102,16 +111,26 @@ python -m ruff check .
 
 ## Quickstart
 
+Construct initial seed examples from a domain brief:
+
+```bash
+datasmith construct-seeds \
+  --domain "legal refund policy reasoning for subscription support" \
+  --output-dir runs/legal-seeds \
+  --target-count 3 \
+  --local-demo
+```
+
 Run the deterministic demo with no API keys:
 
 ```bash
-asi run --seeds examples/seeds.jsonl --output-dir runs/demo --target-count 2 --local-demo
+datasmith run --seeds runs/legal-seeds/seeds.jsonl --output-dir runs/demo --target-count 2 --local-demo
 ```
 
 Convert OTLP JSON traces to seed examples:
 
 ```bash
-asi ingest-otel examples/otel-traces.json --output runs/otel-seeds.jsonl
+datasmith ingest-otel examples/otel-traces.json --output runs/otel-seeds.jsonl
 ```
 
 Use the SDK directly:
@@ -137,6 +156,13 @@ The run writes three artifacts:
 - `rejected.jsonl`: failed candidates with solver attempts, judge output, and reason codes
 - `summary.json`: accepted count, rejected count, attempts, score gaps, and feedback
 
+The seed-construction command writes:
+
+- `seeds.jsonl`: accepted seed examples
+- `rejected-seeds.jsonl`: rejected seeds and judge reasons
+- `signals.json`: web-search signals used by the seed-constructor stage
+- `summary.json`: accepted count, rejected count, attempts, target status, and signal count
+
 ## Bring Your Own Models
 
 Any object with this method can act as a challenger, solver, or judge:
@@ -161,6 +187,31 @@ model = OpenAICompatibleModel(
 
 Provider adapters should return plain text. The challenger and judge are expected to return strict
 JSON matching the prompts in `src/asi/prompts.py`.
+
+Seed construction uses the same model protocol plus a separate search client:
+
+```python
+from asi import SeedConstructor
+from asi.providers import OpenAICompatibleModel
+
+seed_builder = SeedConstructor(
+    search_client=my_search_client,
+    constructor=OpenAICompatibleModel(model="gpt-4.1-mini"),
+    judge=OpenAICompatibleModel(model="gpt-4.1"),
+)
+
+seed_result = seed_builder.run(
+    domain="legal refund policy reasoning for subscription support",
+    target_count=10,
+    queries=[
+        "subscription refund policy exceptions SaaS support",
+        "customer support refund escalation usage limits",
+    ],
+)
+```
+
+Only `search_client` receives web-search access. The challenger, weak solver, strong solver, and
+data judge consume the resulting seeds and do not need search capability.
 
 ## Examples
 
@@ -223,7 +274,7 @@ seed = {
 }
 Path("runs/legal/seeds.jsonl").write_text(json.dumps(seed) + "\n", encoding="utf-8")
 PY
-asi run --seeds runs/legal/seeds.jsonl --output-dir runs/legal/out --target-count 1 --local-demo
+datasmith run --seeds runs/legal/seeds.jsonl --output-dir runs/legal/out --target-count 1 --local-demo
 ```
 
 ### Production Agent Regression Suites
@@ -252,8 +303,8 @@ real production mistakes into new eval cases before the next prompt or model shi
 If you already have OpenTelemetry spans, convert them first:
 
 ```bash
-asi ingest-otel examples/spans.jsonl --format jsonl --output runs/trace-seeds.jsonl
-asi run --seeds runs/trace-seeds.jsonl --output-dir runs/trace-evals --target-count 2 --local-demo
+datasmith ingest-otel examples/spans.jsonl --format jsonl --output runs/trace-seeds.jsonl
+datasmith run --seeds runs/trace-seeds.jsonl --output-dir runs/trace-evals --target-count 2 --local-demo
 ```
 
 ### Coding And Tool-Use Assistants
@@ -338,6 +389,8 @@ This is a practical OSS substrate, not a paper reproduction.
 Implemented:
 
 - provider-agnostic model protocol
+- seed-constructor agent with isolated search access
+- seed judge and seed-construction artifacts
 - deterministic local demo models
 - weak/strong solver rollouts
 - judge-driven acceptance policy
@@ -365,7 +418,7 @@ Not implemented yet:
 
 ## Issues and Contributing
 
-Please use the [GitHub issue tracker](https://github.com/Atharva-Kanherkar/agentic-self-instruct/issues)
+Please use the [GitHub issue tracker](https://github.com/Atharva-Kanherkar/datasmith/issues)
 to report bugs, request features, or ask usage questions. Contributions are welcome; see
 [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and project guidelines.
 

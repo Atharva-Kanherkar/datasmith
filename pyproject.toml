@@ -3,13 +3,13 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentic-self-instruct"
+name = "datasmith"
 version = "0.1.0"
-description = "DataSmith: provider-agnostic SDK and CLI for synthetic data generation from seeds and OpenTelemetry traces."
+description = "Provider-agnostic SDK and CLI for web-grounded seed construction and weak-vs-strong synthetic data generation."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "Agentic Self-Instruct contributors" }]
+authors = [{ name = "DataSmith contributors" }]
 keywords = ["synthetic-data", "self-instruct", "opentelemetry", "llm", "evals"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -28,10 +28,11 @@ dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [project.scripts]
 asi = "asi.cli:main"
+datasmith = "asi.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Atharva-Kanherkar/agentic-self-instruct"
-Issues = "https://github.com/Atharva-Kanherkar/agentic-self-instruct/issues"
+Homepage = "https://github.com/Atharva-Kanherkar/datasmith"
+Issues = "https://github.com/Atharva-Kanherkar/datasmith/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asi"]

@@ -1,13 +1,13 @@
 # OpenTelemetry Ingestion
 
-`agentic-self-instruct` supports two trace-like input formats.
+DataSmith supports two trace-like input formats.
 
 ## OTLP JSON
 
 Use an OTLP JSON trace export with `resourceSpans`, `scopeSpans`, and `spans`:
 
 ```bash
-asi ingest-otel examples/otel-traces.json --output runs/seeds.jsonl
+datasmith ingest-otel examples/otel-traces.json --output runs/seeds.jsonl
 ```
 
 The loader preserves resource attributes, scope attributes, span attributes, `traceId`, `spanId`,
@@ -24,7 +24,7 @@ You can also provide one span object per line:
 Convert with:
 
 ```bash
-asi ingest-otel spans.jsonl --format jsonl --output runs/seeds.jsonl
+datasmith ingest-otel spans.jsonl --format jsonl --output runs/seeds.jsonl
 ```
 
 ## Attribute Extraction

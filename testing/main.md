@@ -1,8 +1,12 @@
-# Agentic Self-Instruct OSS SDK — Test Contract
+# DataSmith OSS SDK — Test Contract
 
 ## Functional Behavior
 - The repository is a standalone, OSS Python package and CLI, independent of AgentClash.
-- The SDK implements the paper-inspired Agentic Self-Instruct loop:
+- The SDK implements a DataSmith seed-construction stage:
+  - A seed-constructor model creates initial seeds from a domain brief and web-search signals.
+  - A seed judge scores seeds for grounding, specificity, and usefulness.
+  - Web-search access is isolated to seed construction; downstream models consume artifacts.
+- The SDK implements the paper-inspired weak-vs-strong Agentic Self-Instruct loop:
   - A challenger model proposes examples from seeds/context.
   - Weak and strong solver models attempt each candidate without seeing the expected answer.
   - A judge scores weak/strong outputs, quality, gap, and acceptance.
@@ -16,9 +20,10 @@
   - JSONL span/event files can be loaded as seed examples.
   - Semantic attributes such as prompts, completions, tool names, status, trace IDs, and span IDs are preserved in metadata.
 - The CLI supports:
-  - `asi run` for generation from normalized JSONL seed files.
-  - `asi ingest-otel` for converting OTEL-shaped traces into normalized seed JSONL.
-  - `asi init` for creating a starter config scaffold. The current CLI run path is demo-only until
+  - `datasmith construct-seeds` for constructing initial seed JSONL from a domain brief.
+  - `datasmith run` for generation from normalized JSONL seed files.
+  - `datasmith ingest-otel` for converting OTEL-shaped traces into normalized seed JSONL.
+  - `datasmith init` for creating a starter config scaffold. The current CLI run path is demo-only until
     provider/config loading is added.
 - The repo includes complete OSS basics: README, license, contributing guide, code of conduct, security policy, examples, tests, pyproject, and package exports.
 
@@ -34,16 +39,21 @@
 - `test_io.py`:
   - JSONL read/write round-trips examples.
   - Run result exports include accepted and rejected records.
+- `test_seed_constructor.py`:
+  - Seed construction uses search signals and accepts grounded seeds.
+  - Invalid seed-construction target counts are rejected.
 - `test_cli.py`:
-  - `asi ingest-otel` writes normalized JSONL.
-  - `asi run` works with deterministic local models and writes output files.
+  - `datasmith ingest-otel` writes normalized JSONL.
+  - `datasmith construct-seeds` writes seed-construction artifacts.
+  - `datasmith run` works with deterministic local models and writes output files.
 
 ## Integration / Functional Tests
 - `python -m pytest`
 - `python -m asi.cli --help`
-- `python -m asi.cli init --output /tmp/asi-config.yaml`
-- `python -m asi.cli ingest-otel examples/otel-traces.json --output /tmp/asi-seeds.jsonl`
-- `python -m asi.cli run --seeds examples/seeds.jsonl --output-dir /tmp/asi-run --target-count 2 --local-demo`
+- `python -m asi.cli init --output /tmp/datasmith-config.yaml`
+- `python -m asi.cli construct-seeds --domain "legal refunds" --output-dir /tmp/datasmith-seeds --target-count 2 --local-demo`
+- `python -m asi.cli ingest-otel examples/otel-traces.json --output /tmp/datasmith-otel-seeds.jsonl`
+- `python -m asi.cli run --seeds examples/seeds.jsonl --output-dir /tmp/datasmith-run --target-count 2 --local-demo`
 
 ## Smoke Tests
 - Install editable package with dev extras.
