@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import asi.export as export_module
 from asi.cli import main
 from asi.export import (
     export_destinations,
@@ -65,7 +66,7 @@ def sft_expected_example() -> Example:
 
 def test_export_registries_expose_raw_and_local() -> None:
     assert export_formats() == ["dpo", "messages", "prompt_completion", "raw", "sft"]
-    assert export_destinations() == ["local"]
+    assert export_destinations() == ["hf", "local"]
     assert get_format("dpo")
     assert get_format("raw")
     assert get_format("sft")
@@ -85,7 +86,7 @@ def test_unknown_export_format_lists_valid_choices() -> None:
 def test_unknown_export_destination_lists_valid_choices() -> None:
     with pytest.raises(
         ValueError,
-        match="unknown export destination: nowhere. Valid destinations: local",
+        match="unknown export destination: nowhere. Valid destinations: hf, local",
     ):
         get_destination("nowhere")
 
@@ -634,7 +635,7 @@ def test_cli_export_unknown_destination_exits_with_valid_choices(tmp_path) -> No
             ]
         )
 
-    assert str(exc.value) == "unknown export destination: nowhere. Valid destinations: local"
+    assert str(exc.value) == "unknown export destination: nowhere. Valid destinations: hf, local"
 
 
 def test_cli_export_bad_jsonl_exits_cleanly(tmp_path) -> None:
@@ -834,3 +835,231 @@ def test_cli_export_rejects_chat_template_for_non_sft(tmp_path) -> None:
         )
 
     assert str(exc.value) == "--chat-template is only supported with format sft"
+
+
+def test_hf_destination_uploads_jsonl_and_dataset_card(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeHfApi:
+        def __init__(self, token: str) -> None:
+            calls["init_token"] = token
+
+        def create_repo(self, **kwargs: object) -> None:
+            calls["create_repo"] = kwargs
+
+        def upload_file(self, **kwargs: object) -> None:
+            calls.setdefault("uploads", []).append(kwargs)
+
+    monkeypatch.setattr(export_module, "_load_hf_api", lambda: FakeHfApi)
+
+    result = export_examples(
+        [Example(input="Prompt", expected="Completion")],
+        format_name="prompt_completion",
+        destination_name="hf",
+        repo="me/ds",
+        private=True,
+        token="token-123",
+        card_metadata={
+            "source": "runs/demo",
+            "run_summary": {
+                "accepted": 1,
+                "rejected": 0,
+                "attempts": 1,
+                "avg_gap": 0.5,
+                "target_count": 1,
+                "target_met": True,
+            },
+        },
+    )
+
+    assert result.records == 1
+    assert calls["init_token"] == "token-123"
+    assert calls["create_repo"] == {
+        "repo_id": "me/ds",
+        "repo_type": "dataset",
+        "private": True,
+        "exist_ok": True,
+        "token": "token-123",
+    }
+    uploads = calls["uploads"]
+    data_upload = uploads[0]
+    card_upload = uploads[1]
+    assert data_upload["path_in_repo"] == "data/train.jsonl"
+    assert json.loads(data_upload["path_or_fileobj"].decode("utf-8")) == {
+        "prompt": "Prompt",
+        "completion": "Completion",
+    }
+    card = card_upload["path_or_fileobj"].decode("utf-8")
+    assert card_upload["path_in_repo"] == "README.md"
+    assert "format: `prompt_completion`" in card
+    assert "records: 1" in card
+    assert "source: `runs/demo`" in card
+    assert "average gap: 0.5" in card
+
+
+def test_hf_destination_requires_repo(tmp_path) -> None:
+    with pytest.raises(ValueError, match="--repo is required when using --to hf"):
+        export_examples(
+            [Example(input="Prompt", expected="Completion")],
+            format_name="prompt_completion",
+            destination_name="hf",
+            output=tmp_path / "ignored.jsonl",
+        )
+
+
+def test_hf_destination_requires_token(monkeypatch) -> None:
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(export_module, "_load_hf_login_token", lambda: None)
+
+    with pytest.raises(ValueError, match="HF_TOKEN is required for --to hf"):
+        export_examples(
+            [Example(input="Prompt", expected="Completion")],
+            format_name="prompt_completion",
+            destination_name="hf",
+            repo="me/ds",
+        )
+
+
+def test_hf_destination_uses_login_token(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeHfApi:
+        def __init__(self, token: str) -> None:
+            calls["token"] = token
+
+        def create_repo(self, **kwargs: object) -> None:
+            calls["create_repo"] = kwargs
+
+        def upload_file(self, **kwargs: object) -> None:
+            calls.setdefault("uploads", []).append(kwargs)
+
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(export_module, "_load_hf_login_token", lambda: "login-token")
+    monkeypatch.setattr(export_module, "_load_hf_api", lambda: FakeHfApi)
+
+    export_examples(
+        [Example(input="Prompt", expected="Completion")],
+        format_name="prompt_completion",
+        destination_name="hf",
+        repo="me/ds",
+    )
+
+    assert calls["token"] == "login-token"
+    assert calls["create_repo"]["token"] == "login-token"
+
+
+def test_hf_destination_missing_extra_is_actionable(monkeypatch) -> None:
+    monkeypatch.setenv("HF_TOKEN", "token-123")
+
+    def missing_extra() -> object:
+        raise ValueError(
+            "Hugging Face export requires optional dependencies. "
+            "Install with: pip install datasmith[hf]"
+        )
+
+    monkeypatch.setattr(export_module, "_load_hf_api", missing_extra)
+
+    with pytest.raises(ValueError, match=r"pip install datasmith\[hf\]"):
+        export_examples(
+            [Example(input="Prompt", expected="Completion")],
+            format_name="prompt_completion",
+            destination_name="hf",
+            repo="me/ds",
+        )
+
+
+def test_cli_export_hf_passes_repo_and_private(monkeypatch, tmp_path, capsys) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeHfApi:
+        def __init__(self, token: str) -> None:
+            calls["token"] = token
+
+        def create_repo(self, **kwargs: object) -> None:
+            calls["create_repo"] = kwargs
+
+        def upload_file(self, **kwargs: object) -> None:
+            calls.setdefault("uploads", []).append(kwargs)
+
+    monkeypatch.setattr(export_module, "_load_hf_api", lambda: FakeHfApi)
+    monkeypatch.setenv("HF_TOKEN", "env-token")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "accepted.jsonl").write_text(
+        '{"input":"Prompt","expected":"Completion","metadata":{}}\n',
+        encoding="utf-8",
+    )
+    (run_dir / "summary.json").write_text(
+        '{"accepted":1,"rejected":0,"attempts":1,"avg_gap":0.25}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "export",
+                "--from",
+                str(run_dir),
+                "--format",
+                "prompt_completion",
+                "--to",
+                "hf",
+                "--repo",
+                "me/ds",
+                "--private",
+            ]
+        )
+        == 0
+    )
+
+    assert calls["create_repo"]["repo_id"] == "me/ds"
+    assert calls["create_repo"]["private"] is True
+    card_upload = calls["uploads"][1]
+    card = card_upload["path_or_fileobj"].decode("utf-8")
+    assert f"source: `{run_dir.name}`" in card
+    assert str(tmp_path) not in card
+    assert "exported 1 records to me/ds" in capsys.readouterr().out
+
+
+def test_cli_export_hf_omits_source_for_public_repo(monkeypatch, tmp_path) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeHfApi:
+        def __init__(self, token: str) -> None:
+            calls["token"] = token
+
+        def create_repo(self, **kwargs: object) -> None:
+            calls["create_repo"] = kwargs
+
+        def upload_file(self, **kwargs: object) -> None:
+            calls.setdefault("uploads", []).append(kwargs)
+
+    monkeypatch.setattr(export_module, "_load_hf_api", lambda: FakeHfApi)
+    monkeypatch.setenv("HF_TOKEN", "env-token")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "accepted.jsonl").write_text(
+        '{"input":"Prompt","expected":"Completion","metadata":{}}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "export",
+                "--from",
+                str(run_dir),
+                "--format",
+                "prompt_completion",
+                "--to",
+                "hf",
+                "--repo",
+                "me/public-ds",
+            ]
+        )
+        == 0
+    )
+
+    card = calls["uploads"][1]["path_or_fileobj"].decode("utf-8")
+    assert "source:" not in card
+    assert str(tmp_path) not in card
