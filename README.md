@@ -1,52 +1,45 @@
 # DataSmith
 
-Turn seeds, production traces, and domain documents into useful synthetic training and evaluation
-data.
+DataSmith is a provider-agnostic Python SDK and CLI for building synthetic training and evaluation
+datasets from seeds, production traces, and domain documents.
 
-DataSmith is a provider-agnostic Python SDK and CLI inspired by Meta FAIR's Autodata paper. The
-current package name is `agentic-self-instruct`, and the Python import is `asi`, but the public
-project name is intentionally simpler: DataSmith makes better model data by testing each generated
-example against weak and strong solvers before accepting it.
+The library implements the practical weak-vs-strong data generation loop described in Meta FAIR's
+Autodata work. A challenger model proposes candidate examples, weak and strong solvers attempt them,
+and a judge accepts examples that are high quality and expose a useful capability gap.
 
-## Autodata In Plain English
+The current package name is `agentic-self-instruct`, and the Python import is `asi`.
 
-Autodata treats data creation like a feedback loop instead of a one-shot prompt. A challenger model
-creates a candidate example from your seeds. A weaker model tries to solve it. A stronger model tries
-the same task. A judge checks whether the strong model wins by enough and whether the example is
-high quality. If the answer is no, the judge feedback goes back to the challenger and the system
-tries again. If the answer is yes, the candidate becomes a dataset example.
+## Overview
 
-That loop is useful because bad synthetic data is usually either too easy, too hard, or detached from
-real product failures. DataSmith keeps the useful middle: examples that expose what the target model
-currently misses while still being solvable by a stronger model or stronger reasoning path.
+Classic self-instruct pipelines ask a model to generate examples. DataSmith adds a validation loop:
+the generated example must separate a weak solver from a stronger solver before it is accepted.
+
+This is useful for creating data that is not merely synthetic, but targeted: examples should be
+grounded in your source material, difficult for the model you want to improve, and still solvable by
+a stronger model, stronger prompt, higher-compute path, or expert reference.
 
 ```mermaid
 flowchart TD
-    Seeds[Seeds and grounding] --> Challenger[Challenger creates a candidate]
-    Challenger --> Candidate[Candidate example]
-    Candidate --> Weak[Weak solver tries it]
-    Candidate --> Strong[Strong solver tries it]
-    Weak --> Judge[Judge scores attempts]
-    Strong --> Judge
-    Judge --> Decision{Strong wins by enough?}
-    Decision -- yes --> Accepted[Accepted dataset example]
-    Decision -- no --> Feedback[Feedback for next attempt]
-    Feedback --> Challenger
+    A[Seeds and grounding] --> B[Challenger]
+    B --> C[Candidate example]
+    C --> D[Weak solver]
+    C --> E[Strong solver]
+    D --> F[Judge]
+    E --> F
+    F --> G{Accept?}
+    G -- yes --> H[Dataset example]
+    G -- no --> I[Feedback]
+    I --> B
 ```
 
-## What DataSmith Does
+## Core Concepts
 
-DataSmith packages the Agentic Self-Instruct pressure test into a small developer tool:
+DataSmith exposes four model roles through one simple model protocol.
 
-1. A challenger model proposes one candidate example from seeds and prior judge feedback.
-2. A weak solver attempts the example.
-3. A strong solver attempts the same example.
-4. A judge scores quality and weak/strong separation.
-5. Accepted examples are written as JSONL artifacts. Rejected examples preserve the reason, solver
-   attempts, and judge feedback so the next challenger round can improve.
-
-The goal is not "harder data" in the abstract. The goal is data that is useful for the target model:
-not trivial, not impossible, and grounded in the failure modes you actually care about.
+- `challenger`: generates candidate examples from seeds and prior judge feedback
+- `weak_solver`: represents the model, prompt, or low-compute path you want to improve
+- `strong_solver`: represents a stronger model, prompt, rollout policy, or expert path
+- `judge`: evaluates example quality and weak/strong separation
 
 ```mermaid
 flowchart LR
@@ -59,17 +52,24 @@ flowchart LR
     Judge -->|accept / reject + feedback| Artifacts[JSONL artifacts]
 ```
 
-The roles are intentionally simple:
+Accepted and rejected candidates are both preserved. Rejections include reason codes, solver
+attempts, judge output, and feedback for later challenger attempts.
 
-- `challenger`: generates candidate examples from seeds and previous feedback
-- `weak_solver`: represents the model, prompt, or low-compute path you want to improve
-- `strong_solver`: represents a stronger model, better prompt, more rollouts, or expert path
-- `judge`: checks quality and whether the strong solver clearly outperforms the weak one
+## Features
 
-## Why This Exists
+- Provider-agnostic model interface
+- Deterministic local demo models for tests and tutorials
+- Weak and strong solver rollouts
+- Judge-driven acceptance policy
+- Accepted and rejected JSONL artifacts
+- OTLP JSON and flattened span JSONL ingestion
+- CLI for local demo runs and trace ingestion
+- Tests for IO, CLI, ingestion, prompt leakage, judge validation, and partial-run reporting
 
-The Autodata paper reports that Agentic Self-Instruct can produce better data than standard
-prompt-only synthetic generation across several settings:
+## Research Background
+
+The Autodata paper reports that weak-vs-strong Agentic Self-Instruct can produce better data than
+standard prompt-only synthetic generation across several settings:
 
 - CS research QA: the loop widened the weak/strong score gap from 0.019 to 0.314 and improved
   downstream RL training on held-out tasks.
@@ -78,13 +78,9 @@ prompt-only synthetic generation across several settings:
 - Scientific reasoning: agentic data delivered stronger average gains than larger combined datasets,
   showing that data quality can beat raw data volume.
 
-DataSmith brings that pattern to developers as a small, inspectable library:
-
-- no required provider SDKs
-- no API keys needed for tests or the local demo
-- pluggable model objects for challenger, solvers, and judge
-- OpenTelemetry and span JSONL ingestion for trace-derived seeds
-- typed accepted/rejected artifacts suitable for evals, fine-tuning, RL, or human review
+DataSmith is not an official Meta implementation and does not reproduce the paper's full training or
+meta-optimization stack. It provides the reusable inner loop: ingestion, model interfaces,
+orchestration, acceptance policies, artifacts, CLI, and tests.
 
 ## Install
 
@@ -166,10 +162,11 @@ model = OpenAICompatibleModel(
 Provider adapters should return plain text. The challenger and judge are expected to return strict
 JSON matching the prompts in `src/asi/prompts.py`.
 
-## Real Use Cases
+## Examples
 
-Use this when you already have seeds, traces, or source documents and need examples that expose a
-model's current weaknesses.
+The examples below create seed files that can be used with the deterministic local demo. In
+production, replace the demo models with your own challenger, weak solver, strong solver, and judge
+through the SDK.
 
 ### Legal Reasoning
 
@@ -178,12 +175,54 @@ answerable by a strong legal-reasoning path while exposing where the weak solver
 exceptions, or fact application.
 
 ```json
-{"input":{"task":"Apply the refund clause to a disputed subscription cancellation.","context":"Policy: customers can receive a refund within 14 days unless the account consumed more than 80% of included credits. Facts: the customer canceled on day 10 after consuming 92% of credits.","question":"Should the support agent offer a refund, and what condition controls the answer?"},"expected":{"answer":"No automatic refund. The cancellation is within 14 days, but the 80% credit-consumption exception controls because the account used 92% of credits."},"metadata":{"domain":"legal-policy","source":"example","tags":["refunds","exceptions","fact-application"]}}
+{
+  "input": {
+    "task": "Apply the refund clause to a disputed subscription cancellation.",
+    "context": "Policy: customers can receive a refund within 14 days unless the account consumed more than 80% of included credits. Facts: the customer canceled on day 10 after consuming 92% of credits.",
+    "question": "Should the support agent offer a refund, and what condition controls the answer?"
+  },
+  "expected": {
+    "answer": "No automatic refund. The cancellation is within 14 days, but the 80% credit-consumption exception controls because the account used 92% of credits."
+  },
+  "metadata": {
+    "domain": "legal-policy",
+    "source": "example",
+    "tags": ["refunds", "exceptions", "fact-application"]
+  }
+}
 ```
 
 ```bash
 mkdir -p runs/legal
-printf '%s\n' '{"input":{"task":"Apply the refund clause to a disputed subscription cancellation.","context":"Policy: customers can receive a refund within 14 days unless the account consumed more than 80% of included credits. Facts: the customer canceled on day 10 after consuming 92% of credits.","question":"Should the support agent offer a refund, and what condition controls the answer?"},"expected":{"answer":"No automatic refund. The cancellation is within 14 days, but the 80% credit-consumption exception controls because the account used 92% of credits."},"metadata":{"domain":"legal-policy","source":"example","tags":["refunds","exceptions","fact-application"]}}' > runs/legal/seeds.jsonl
+python - <<'PY'
+import json
+from pathlib import Path
+
+Path("runs/legal").mkdir(parents=True, exist_ok=True)
+seed = {
+    "input": {
+        "task": "Apply the refund clause to a disputed subscription cancellation.",
+        "context": (
+            "Policy: customers can receive a refund within 14 days unless the account consumed "
+            "more than 80% of included credits. Facts: the customer canceled on day 10 after "
+            "consuming 92% of credits."
+        ),
+        "question": "Should the support agent offer a refund, and what condition controls the answer?",
+    },
+    "expected": {
+        "answer": (
+            "No automatic refund. The cancellation is within 14 days, but the 80% "
+            "credit-consumption exception controls because the account used 92% of credits."
+        )
+    },
+    "metadata": {
+        "domain": "legal-policy",
+        "source": "example",
+        "tags": ["refunds", "exceptions", "fact-application"],
+    },
+}
+Path("runs/legal/seeds.jsonl").write_text(json.dumps(seed) + "\n", encoding="utf-8")
+PY
 asi run --seeds runs/legal/seeds.jsonl --output-dir runs/legal/out --target-count 1 --local-demo
 ```
 
@@ -193,7 +232,21 @@ Use failed support traces, tool-call transcripts, or manually reviewed incidents
 real production mistakes into new eval cases before the next prompt or model ships.
 
 ```json
-{"input":{"task":"Diagnose the agent's tool-use failure before answering the customer.","context":"Trace: the agent answered from cached account_state from 09:00. A fresh billing_event at 09:05 changed the subscription status to canceled. The final answer promised continued access.","question":"What should the agent have done before answering?"},"expected":{"answer":"Refresh account state or read the latest billing event before making an access promise; the cached state was stale."},"metadata":{"domain":"support-agent","source":"redacted-trace","tags":["tool-use","stale-cache","billing"]}}
+{
+  "input": {
+    "task": "Diagnose the agent's tool-use failure before answering the customer.",
+    "context": "Trace: the agent answered from cached account_state from 09:00. A fresh billing_event at 09:05 changed the subscription status to canceled. The final answer promised continued access.",
+    "question": "What should the agent have done before answering?"
+  },
+  "expected": {
+    "answer": "Refresh account state or read the latest billing event before making an access promise; the cached state was stale."
+  },
+  "metadata": {
+    "domain": "support-agent",
+    "source": "redacted-trace",
+    "tags": ["tool-use", "stale-cache", "billing"]
+  }
+}
 ```
 
 If you already have OpenTelemetry spans, convert them first:
@@ -209,7 +262,21 @@ Use examples where the obvious answer is incomplete unless the model follows a c
 right tool, or checks a result.
 
 ```json
-{"input":{"task":"Review a migration plan for a billing table.","context":"The plan adds a NOT NULL column `billing_country` to `invoices` without a default or backfill. Existing rows do not have this value.","question":"What is the migration risk and safer rollout?"},"expected":{"answer":"The migration can fail or lock because existing rows violate NOT NULL. Add the nullable column, backfill values, validate, then add the NOT NULL constraint in a later step."},"metadata":{"domain":"coding","source":"example","tags":["database","migration","backfill"]}}
+{
+  "input": {
+    "task": "Review a migration plan for a billing table.",
+    "context": "The plan adds a NOT NULL column `billing_country` to `invoices` without a default or backfill. Existing rows do not have this value.",
+    "question": "What is the migration risk and safer rollout?"
+  },
+  "expected": {
+    "answer": "The migration can fail or lock because existing rows violate NOT NULL. Add the nullable column, backfill values, validate, then add the NOT NULL constraint in a later step."
+  },
+  "metadata": {
+    "domain": "coding",
+    "source": "example",
+    "tags": ["database", "migration", "backfill"]
+  }
+}
 ```
 
 ### Custom SDK Use
@@ -264,7 +331,7 @@ pattern with output/completion names.
 
 See [docs/otel.md](docs/otel.md).
 
-## Scope And Gaps
+## Scope and Limitations
 
 This is a practical OSS substrate, not a paper reproduction.
 
@@ -295,6 +362,12 @@ Not implemented yet:
 - Microsoft Research, [AgentInstruct: Toward Generative Teaching with Agentic Flows](https://arxiv.org/abs/2407.03502)
 - Braintrust, [Agent observability: the complete guide for 2026](https://www.braintrust.dev/articles/agent-observability-complete-guide-2026)
 - Grafana Labs, [Observing agentic AI workflows with Grafana Cloud, OpenTelemetry, and the OpenAI Agents SDK](https://grafana.com/blog/observing-agentic-ai-workflows-with-grafana-cloud-opentelemetry-and-the-openai-agents-sdk/)
+
+## Issues and Contributing
+
+Please use the [GitHub issue tracker](https://github.com/Atharva-Kanherkar/agentic-self-instruct/issues)
+to report bugs, request features, or ask usage questions. Contributions are welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md) for development setup and project guidelines.
 
 ## Status
 
