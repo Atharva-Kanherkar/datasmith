@@ -75,6 +75,7 @@ attempts, judge output, and feedback for later challenger attempts.
 - Weak and strong solver rollouts
 - Judge-driven acceptance policy
 - Accepted and rejected JSONL artifacts
+- Trainer-ready dataset export from accepted artifacts
 - OTLP JSON and flattened span JSONL ingestion
 - CLI for local demo runs and trace ingestion
 - Tests for IO, CLI, ingestion, prompt leakage, judge validation, and partial-run reporting
@@ -131,6 +132,12 @@ Run the deterministic demo with no API keys:
 datasmith run --seeds runs/legal-seeds/seeds.jsonl --output-dir runs/demo --target-count 2 --local-demo
 ```
 
+Export accepted examples into a trainer-ready JSONL dataset:
+
+```bash
+datasmith export --from runs/demo --format raw --to local --output runs/demo/dataset.jsonl
+```
+
 Convert OTLP JSON traces to seed examples:
 
 ```bash
@@ -159,6 +166,10 @@ The run writes three artifacts:
 - `accepted.jsonl`: examples that passed the policy
 - `rejected.jsonl`: failed candidates with solver attempts, judge output, and reason codes
 - `summary.json`: accepted count, rejected count, attempts, score gaps, and feedback
+
+Use `datasmith export --from <run-output-dir | accepted.jsonl> --format raw --to local --output
+dataset.jsonl` to convert accepted artifacts into dataset JSONL. The `raw` format preserves the
+current `Example.to_dict()` shape.
 
 The seed-construction command writes:
 

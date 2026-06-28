@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from asi.core import AgenticSelfInstruct
+from asi.export import export_destinations, export_examples, export_formats
 from asi.io import (
     export_run_result,
     export_seed_construction_result,
@@ -58,6 +59,24 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--strong-rollouts", type=int, default=3)
     run_parser.add_argument("--local-demo", action="store_true", help="Use deterministic local models")
 
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Export trainer-ready datasets from accepted examples",
+    )
+    export_parser.add_argument("--from", dest="from_path", required=True)
+    export_parser.add_argument(
+        "--format",
+        default="raw",
+        help=f"Export format: {', '.join(export_formats())}",
+    )
+    export_parser.add_argument(
+        "--to",
+        dest="destination",
+        default="local",
+        help=f"Export destination: {', '.join(export_destinations())}",
+    )
+    export_parser.add_argument("--output", required=True)
+
     args = parser.parse_args(argv)
     if args.command == "init":
         _write_starter_config(Path(args.output))
@@ -105,7 +124,32 @@ def main(argv: list[str] | None = None) -> int:
         export_run_result(result, args.output_dir)
         print(json.dumps(result.summary(), indent=2, sort_keys=True))
         return 0
+    if args.command == "export":
+        examples = read_jsonl(_export_input_path(args.from_path))
+        try:
+            record_count = export_examples(
+                examples,
+                format_name=args.format,
+                destination_name=args.destination,
+                output=args.output,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(f"exported {record_count} records to {args.output}")
+        return 0
     return 1
+
+
+def _export_input_path(source: str | Path) -> Path:
+    path = Path(source)
+    if not path.exists():
+        raise SystemExit(f"export source does not exist: {path}")
+    if path.is_dir():
+        accepted = path / "accepted.jsonl"
+        if not accepted.exists():
+            raise SystemExit(f"export source directory is missing accepted.jsonl: {path}")
+        return accepted
+    return path
 
 
 def _write_starter_config(path: Path) -> None:
