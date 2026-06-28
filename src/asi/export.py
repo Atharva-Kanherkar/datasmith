@@ -194,33 +194,18 @@ def dpo_serializer(options: ExportOptions, example: Example) -> Iterable[JSON]:
 
 
 def sft_serializer(options: ExportOptions, example: Example) -> Iterable[JSON]:
-    prompt = render_prompt(example)
     assistant = _sft_assistant_output(example)
     system = _system_content(example)
     metadata = _sft_metadata(example)
 
     if options.chat_template == "chatml":
-        messages = []
-        if system is not None:
-            messages.append({"role": "system", "content": system})
-        messages.extend(
-            [
-                {"role": "user", "content": prompt},
-                {"role": "assistant", "content": assistant},
-            ]
-        )
+        messages = _sft_prompt_messages(example, system)
+        messages.append({"role": "assistant", "content": assistant})
         yield {"messages": messages, "metadata": metadata}
         return
 
-    conversations = []
-    if system is not None:
-        conversations.append({"from": "system", "value": system})
-    conversations.extend(
-        [
-            {"from": "human", "value": prompt},
-            {"from": "gpt", "value": assistant},
-        ]
-    )
+    conversations = _sharegpt_conversations(_sft_prompt_messages(example, system))
+    conversations.append({"from": "gpt", "value": assistant})
     yield {"conversations": conversations, "metadata": metadata}
 
 
@@ -332,6 +317,28 @@ def _system_content(example: Example) -> str | None:
         return None
     text = _stringify_prompt_value(value).strip()
     return text or None
+
+
+def _sft_prompt_messages(example: Example, system: str | None) -> list[JSON]:
+    messages = render_messages(example)
+    if system is not None and not _has_system_message(messages):
+        return [{"role": "system", "content": system}, *messages]
+    return messages
+
+
+def _has_system_message(messages: list[JSON]) -> bool:
+    return bool(messages) and messages[0].get("role") == "system"
+
+
+def _sharegpt_conversations(messages: list[JSON]) -> list[JSON]:
+    role_map = {"assistant": "gpt", "system": "system", "user": "human"}
+    return [
+        {
+            "from": role_map.get(str(message["role"]), str(message["role"])),
+            "value": str(message["content"]),
+        }
+        for message in messages
+    ]
 
 
 def _uses_prompt_json_fallback(example: Example) -> bool:

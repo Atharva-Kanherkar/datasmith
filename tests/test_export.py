@@ -392,6 +392,54 @@ def test_sft_chatml_export_uses_strong_attempt_when_expected_missing(tmp_path) -
     }
 
 
+def test_sft_chatml_export_preserves_existing_prompt_messages(tmp_path) -> None:
+    output = tmp_path / "sft.jsonl"
+    messages = [
+        {"role": "system", "content": "Use the refund policy."},
+        {"role": "user", "content": "Can this account be refunded?"},
+    ]
+    example = sft_expected_example()
+    example.input = {"gen_ai.input.messages": messages}
+    example.metadata["system"] = "Do not duplicate this system prompt."
+
+    result = export_examples(
+        [example],
+        format_name="sft",
+        destination_name="local",
+        output=output,
+        chat_template="chatml",
+    )
+
+    assert result.records == 1
+    assert json.loads(output.read_text(encoding="utf-8"))["messages"] == [
+        *messages,
+        {"role": "assistant", "content": '{"answer":"Deny the refund"}'},
+    ]
+
+
+def test_sft_sharegpt_export_converts_existing_prompt_messages(tmp_path) -> None:
+    output = tmp_path / "sft.jsonl"
+    example = sft_expected_example()
+    example.input = [
+        {"role": "system", "content": "Use the refund policy."},
+        {"role": "user", "content": "Can this account be refunded?"},
+    ]
+
+    result = export_examples(
+        [example],
+        format_name="sft",
+        destination_name="local",
+        output=output,
+    )
+
+    assert result.records == 1
+    assert json.loads(output.read_text(encoding="utf-8"))["conversations"] == [
+        {"from": "system", "value": "Use the refund policy."},
+        {"from": "human", "value": "Can this account be refunded?"},
+        {"from": "gpt", "value": '{"answer":"Deny the refund"}'},
+    ]
+
+
 def test_sft_export_skips_when_no_assistant_output(tmp_path) -> None:
     output = tmp_path / "sft.jsonl"
 
