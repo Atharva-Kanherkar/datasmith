@@ -172,6 +172,18 @@ Use `datasmith export --from <run-output-dir | accepted.jsonl> --format prompt_c
 writes chat-style records. The `raw` format is available when you explicitly want to preserve the
 current `Example.to_dict()` artifact shape.
 
+Use `--format dpo` to export preference pairs for TRL `DPOTrainer`, Unsloth-DPO, and Axolotl:
+
+```bash
+datasmith export --from runs/demo --format dpo --to local --output runs/demo/dpo.jsonl
+```
+
+DPO export writes `prompt`, `chosen`, `rejected`, and `metadata`. The prompt comes from
+`render_prompt(example)`, the chosen answer is the first strong-solver attempt, and the rejected
+answer is the first weak-solver attempt. Examples without solver attempts, empty attempt lists, or
+identical chosen/rejected text are skipped and counted in the CLI summary. Add `--conversational` to
+emit TRL's role/content array form for `prompt`, `chosen`, and `rejected`.
+
 The seed-construction command writes:
 
 - `seeds.jsonl`: accepted seed examples
