@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     export_parser.add_argument("--from", dest="from_path", required=True)
     export_parser.add_argument(
         "--format",
-        default="raw",
+        default="prompt_completion",
         help=f"Export format: {', '.join(export_formats())}",
     )
     export_parser.add_argument(
@@ -125,8 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.summary(), indent=2, sort_keys=True))
         return 0
     if args.command == "export":
-        examples = read_jsonl(_export_input_path(args.from_path))
         try:
+            examples = read_jsonl(_export_input_path(args.from_path))
             record_count = export_examples(
                 examples,
                 format_name=args.format,

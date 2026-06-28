@@ -135,7 +135,7 @@ datasmith run --seeds runs/legal-seeds/seeds.jsonl --output-dir runs/demo --targ
 Export accepted examples into a trainer-ready JSONL dataset:
 
 ```bash
-datasmith export --from runs/demo --format raw --to local --output runs/demo/dataset.jsonl
+datasmith export --from runs/demo --format prompt_completion --to local --output runs/demo/dataset.jsonl
 ```
 
 Convert OTLP JSON traces to seed examples:
@@ -167,9 +167,10 @@ The run writes three artifacts:
 - `rejected.jsonl`: failed candidates with solver attempts, judge output, and reason codes
 - `summary.json`: accepted count, rejected count, attempts, score gaps, and feedback
 
-Use `datasmith export --from <run-output-dir | accepted.jsonl> --format raw --to local --output
-dataset.jsonl` to convert accepted artifacts into dataset JSONL. The `raw` format preserves the
-current `Example.to_dict()` shape.
+Use `datasmith export --from <run-output-dir | accepted.jsonl> --format prompt_completion --to local
+--output dataset.jsonl` to convert accepted artifacts into trainer JSONL. The `messages` format
+writes chat-style records. The `raw` format is available when you explicitly want to preserve the
+current `Example.to_dict()` artifact shape.
 
 The seed-construction command writes:
 

@@ -8,7 +8,15 @@ from typing import Any
 from asi.types import Example, JSON
 
 
-DEFAULT_PROMPT_KEYS = ("gen_ai.prompt", "llm.prompt", "input.value")
+DEFAULT_PROMPT_KEYS = (
+    "gen_ai.prompt",
+    "gen_ai.input.messages",
+    "llm.prompt",
+    "openinference.input.value",
+    "input.value",
+    "input",
+    "prompt",
+)
 FormatSerializer = Callable[[Example], Iterable[Mapping[str, Any]]]
 DestinationWriter = Callable[[Iterable[Mapping[str, Any]], str | Path], int]
 
@@ -73,6 +81,26 @@ def raw_serializer(example: Example) -> Iterable[JSON]:
     yield example.to_dict()
 
 
+def prompt_completion_serializer(example: Example) -> Iterable[JSON]:
+    if example.expected is None:
+        raise ValueError("prompt_completion export requires examples with expected outputs")
+    yield {
+        "prompt": render_prompt(example),
+        "completion": render_completion(example),
+    }
+
+
+def messages_serializer(example: Example) -> Iterable[JSON]:
+    if example.expected is None:
+        raise ValueError("messages export requires examples with expected outputs")
+    yield {
+        "messages": [
+            {"role": "user", "content": render_prompt(example)},
+            {"role": "assistant", "content": render_completion(example)},
+        ]
+    }
+
+
 def write_local_jsonl(records: Iterable[Mapping[str, Any]], output: str | Path) -> int:
     target = Path(output)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +113,8 @@ def write_local_jsonl(records: Iterable[Mapping[str, Any]], output: str | Path) 
 
 
 FORMAT_REGISTRY: dict[str, FormatSerializer] = {
+    "messages": messages_serializer,
+    "prompt_completion": prompt_completion_serializer,
     "raw": raw_serializer,
 }
 DESTINATION_REGISTRY: dict[str, DestinationWriter] = {
@@ -106,6 +136,11 @@ def _stringify_prompt_value(value: Any) -> str:
     if isinstance(value, dict | list):
         return _compact_json(value)
     return str(value)
+
+
+def render_completion(example: Example) -> str:
+    """Return a trainer completion string from an example expected output."""
+    return _stringify_prompt_value(example.expected)
 
 
 def _compact_json(value: Any) -> str:
