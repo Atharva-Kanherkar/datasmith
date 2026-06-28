@@ -24,5 +24,8 @@
     "kaggle": "https://www.kaggle.com/datasets/atharvakanherkara/datasmith-math-78-dpo",
     "raw_records": 78,
     "filtered_records": 68
+  },
+  "notebook": {
+    "kaggle": "https://www.kaggle.com/code/atharvakanherkara/datasmith-gsm8k-benchmark"
   }
 }

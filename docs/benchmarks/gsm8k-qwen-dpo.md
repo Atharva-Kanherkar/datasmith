@@ -31,6 +31,11 @@ GSM8K in the pilot runs.
 
 ## Generated Data
 
+Kaggle notebook:
+
+- `datasmith-gsm8k-benchmark`
+- URL: `https://www.kaggle.com/code/atharvakanherkara/datasmith-gsm8k-benchmark`
+
 Kaggle dataset:
 
 - `datasmith-math-78-dpo`
