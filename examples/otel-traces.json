@@ -1,0 +1,28 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout-agent"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "demo"},
+          "spans": [
+            {
+              "traceId": "trace-otel-1",
+              "spanId": "span-otel-1",
+              "name": "gen_ai.chat",
+              "attributes": [
+                {"key": "gen_ai.prompt", "value": {"stringValue": "Diagnose why the checkout agent skipped tax validation."}},
+                {"key": "gen_ai.completion", "value": {"stringValue": "The agent should validate tax before confirming checkout."}},
+                {"key": "gen_ai.operation.name", "value": {"stringValue": "chat"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

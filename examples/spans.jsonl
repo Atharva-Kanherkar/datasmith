@@ -1,0 +1,1 @@
+{"trace_id":"trace-1","span_id":"span-1","name":"chat.completion","attributes":{"gen_ai.prompt":"User asks for a refund; policy lookup is required.","gen_ai.completion":"Check policy and subscription age before offering refund.","gen_ai.operation.name":"chat"}}

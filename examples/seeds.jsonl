@@ -1,0 +1,2 @@
+{"input":{"task":"Analyze a support trace where the first model answer ignores a hidden constraint.","context":"The user asks for a refund but policy requires checking subscription age."},"expected":{"answer":"Check subscription age before promising a refund."},"metadata":{"source":"example"}}
+{"input":{"task":"Find the flaw in a tool-use plan.","context":"The agent reads stale cache data before confirming the latest account state."},"expected":{"answer":"Refresh account state before making the final decision."},"metadata":{"source":"example"}}

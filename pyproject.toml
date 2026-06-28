@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentic-self-instruct"
+version = "0.1.0"
+description = "Provider-agnostic Agentic Self-Instruct SDK and CLI for synthetic data generation from seeds and OpenTelemetry traces."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Agentic Self-Instruct contributors" }]
+keywords = ["synthetic-data", "self-instruct", "opentelemetry", "llm", "evals"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+asi = "asi.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Atharva-Kanherkar/agentic-self-instruct"
+Issues = "https://github.com/Atharva-Kanherkar/agentic-self-instruct/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
