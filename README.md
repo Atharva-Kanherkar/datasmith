@@ -432,17 +432,6 @@ Not implemented yet:
 - Braintrust, [Agent observability: the complete guide for 2026](https://www.braintrust.dev/articles/agent-observability-complete-guide-2026)
 - Grafana Labs, [Observing agentic AI workflows with Grafana Cloud, OpenTelemetry, and the OpenAI Agents SDK](https://grafana.com/blog/observing-agentic-ai-workflows-with-grafana-cloud-opentelemetry-and-the-openai-agents-sdk/)
 
-## Issues and Contributing
-
-Please use the [GitHub issue tracker](https://github.com/Atharva-Kanherkar/datasmith/issues)
-to report bugs, request features, or ask usage questions. Contributions are welcome; see
-[CONTRIBUTING.md](CONTRIBUTING.md) for development setup and project guidelines.
-
-## Status
-
-Alpha. The public API is intentionally small and typed. Expect iteration as the Autodata and agent
-observability ecosystems mature.
-
 ## License
 
 MIT.
