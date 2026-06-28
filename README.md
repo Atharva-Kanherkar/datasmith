@@ -8,8 +8,6 @@ current package name is `agentic-self-instruct`, and the Python import is `asi`,
 project name is intentionally simpler: DataSmith makes better model data by testing each generated
 example against weak and strong solvers before accepting it.
 
-![Autodata weak-vs-strong data loop](docs/assets/autodata-loop.png)
-
 ## Autodata In Plain English
 
 Autodata treats data creation like a feedback loop instead of a one-shot prompt. A challenger model
@@ -21,6 +19,20 @@ tries again. If the answer is yes, the candidate becomes a dataset example.
 That loop is useful because bad synthetic data is usually either too easy, too hard, or detached from
 real product failures. DataSmith keeps the useful middle: examples that expose what the target model
 currently misses while still being solvable by a stronger model or stronger reasoning path.
+
+```mermaid
+flowchart TD
+    Seeds[Seeds and grounding] --> Challenger[Challenger creates a candidate]
+    Challenger --> Candidate[Candidate example]
+    Candidate --> Weak[Weak solver tries it]
+    Candidate --> Strong[Strong solver tries it]
+    Weak --> Judge[Judge scores attempts]
+    Strong --> Judge
+    Judge --> Decision{Strong wins by enough?}
+    Decision -- yes --> Accepted[Accepted dataset example]
+    Decision -- no --> Feedback[Feedback for next attempt]
+    Feedback --> Challenger
+```
 
 ## What DataSmith Does
 
@@ -35,6 +47,24 @@ DataSmith packages the Agentic Self-Instruct pressure test into a small develope
 
 The goal is not "harder data" in the abstract. The goal is data that is useful for the target model:
 not trivial, not impossible, and grounded in the failure modes you actually care about.
+
+```mermaid
+flowchart LR
+    Challenger[Challenger] -->|writes task + reference| Example[Candidate]
+    Example -->|same input only| Weak[Weak solver]
+    Example -->|same input only| Strong[Strong solver]
+    Weak --> Attempts[Solver attempts]
+    Strong --> Attempts
+    Attempts --> Judge[Judge]
+    Judge -->|accept / reject + feedback| Artifacts[JSONL artifacts]
+```
+
+The roles are intentionally simple:
+
+- `challenger`: generates candidate examples from seeds and previous feedback
+- `weak_solver`: represents the model, prompt, or low-compute path you want to improve
+- `strong_solver`: represents a stronger model, better prompt, more rollouts, or expert path
+- `judge`: checks quality and whether the strong solver clearly outperforms the weak one
 
 ## Why This Exists
 
@@ -141,32 +171,84 @@ JSON matching the prompts in `src/asi/prompts.py`.
 Use this when you already have seeds, traces, or source documents and need examples that expose a
 model's current weaknesses.
 
-Production agent regression suites:
-Teams now trace agent runs across LLM calls, tools, memory reads, state transitions, and handoffs.
-Braintrust describes the practical loop as scoring production traces and feeding failures back into
-the eval suite. DataSmith can ingest those spans as seeds, generate nearby hard cases, and export
-JSONL for CI evals before a weaker model or prompt ships.
+### Legal Reasoning
 
-OpenTelemetry-to-eval pipelines:
-Grafana's OpenAI Agents SDK walkthrough shows agent workflows exported through OpenTelemetry into
-Grafana Cloud, including guardrail failures, handoffs, model metadata, and token usage. This package
-uses the same trace-shaped inputs to turn observed production behavior into candidate training or
-evaluation examples.
+Use legal documents, policy snippets, or compliance memos as seeds. The accepted examples should be
+answerable by a strong legal-reasoning path while exposing where the weak solver misses holdings,
+exceptions, or fact application.
 
-Customer support and policy QA:
-Support agents often fail on edge policies, refunds, account state, and tool sequencing. Use real
-redacted tickets or traces as seeds, a weaker deployed model as the weak solver, and a stronger model
-or human-reviewed judge rubric as the strong path.
+```json
+{"input":{"task":"Apply the refund clause to a disputed subscription cancellation.","context":"Policy: customers can receive a refund within 14 days unless the account consumed more than 80% of included credits. Facts: the customer canceled on day 10 after consuming 92% of credits.","question":"Should the support agent offer a refund, and what condition controls the answer?"},"expected":{"answer":"No automatic refund. The cancellation is within 14 days, but the 80% credit-consumption exception controls because the account used 92% of credits."},"metadata":{"domain":"legal-policy","source":"example","tags":["refunds","exceptions","fact-application"]}}
+```
 
-Legal, compliance, and domain reasoning:
-Autodata's legal experiments show why "make it harder" is not always right. Some examples are too
-hard to teach from. The weak/strong loop helps shape questions toward examples with useful learning
-signal instead of accepting every large gap blindly.
+```bash
+mkdir -p runs/legal
+printf '%s\n' '{"input":{"task":"Apply the refund clause to a disputed subscription cancellation.","context":"Policy: customers can receive a refund within 14 days unless the account consumed more than 80% of included credits. Facts: the customer canceled on day 10 after consuming 92% of credits.","question":"Should the support agent offer a refund, and what condition controls the answer?"},"expected":{"answer":"No automatic refund. The cancellation is within 14 days, but the 80% credit-consumption exception controls because the account used 92% of credits."},"metadata":{"domain":"legal-policy","source":"example","tags":["refunds","exceptions","fact-application"]}}' > runs/legal/seeds.jsonl
+asi run --seeds runs/legal/seeds.jsonl --output-dir runs/legal/out --target-count 1 --local-demo
+```
 
-Coding and tool-use assistants:
-AgentInstruct and related synthetic-data work show that agentic flows can generate data for coding,
-tool use, reading comprehension, and web control from raw documents or code. This repo is useful when
-you want a smaller, auditable loop that keeps weak/strong disagreement and rejection artifacts visible.
+### Production Agent Regression Suites
+
+Use failed support traces, tool-call transcripts, or manually reviewed incidents as seeds. This turns
+real production mistakes into new eval cases before the next prompt or model ships.
+
+```json
+{"input":{"task":"Diagnose the agent's tool-use failure before answering the customer.","context":"Trace: the agent answered from cached account_state from 09:00. A fresh billing_event at 09:05 changed the subscription status to canceled. The final answer promised continued access.","question":"What should the agent have done before answering?"},"expected":{"answer":"Refresh account state or read the latest billing event before making an access promise; the cached state was stale."},"metadata":{"domain":"support-agent","source":"redacted-trace","tags":["tool-use","stale-cache","billing"]}}
+```
+
+If you already have OpenTelemetry spans, convert them first:
+
+```bash
+asi ingest-otel examples/spans.jsonl --format jsonl --output runs/trace-seeds.jsonl
+asi run --seeds runs/trace-seeds.jsonl --output-dir runs/trace-evals --target-count 2 --local-demo
+```
+
+### Coding And Tool-Use Assistants
+
+Use examples where the obvious answer is incomplete unless the model follows a constraint, calls the
+right tool, or checks a result.
+
+```json
+{"input":{"task":"Review a migration plan for a billing table.","context":"The plan adds a NOT NULL column `billing_country` to `invoices` without a default or backfill. Existing rows do not have this value.","question":"What is the migration risk and safer rollout?"},"expected":{"answer":"The migration can fail or lock because existing rows violate NOT NULL. Add the nullable column, backfill values, validate, then add the NOT NULL constraint in a later step."},"metadata":{"domain":"coding","source":"example","tags":["database","migration","backfill"]}}
+```
+
+### Custom SDK Use
+
+Replace the deterministic demo models with your own challenger, weak solver, strong solver, and
+judge. The CLI is intentionally demo-only today; use the SDK when wiring real providers.
+
+```python
+from asi import AgenticSelfInstruct, Example
+from asi.providers import OpenAICompatibleModel
+
+challenger = OpenAICompatibleModel(model="gpt-4.1-mini")
+weak_solver = OpenAICompatibleModel(model="gpt-4.1-mini", temperature=0.2)
+strong_solver = OpenAICompatibleModel(model="gpt-4.1")
+judge = OpenAICompatibleModel(model="gpt-4.1")
+
+runner = AgenticSelfInstruct(
+    challenger=challenger,
+    weak_solver=weak_solver,
+    strong_solver=strong_solver,
+    judge=judge,
+    weak_rollouts=3,
+    strong_rollouts=3,
+)
+
+result = runner.run(
+    [
+        Example(
+            input={
+                "task": "Apply the refund clause to a disputed subscription cancellation.",
+                "context": "Refunds are allowed within 14 days unless usage exceeds 80%.",
+            }
+        )
+    ],
+    target_count=5,
+)
+
+print(result.summary())
+```
 
 ## OpenTelemetry Input
 
