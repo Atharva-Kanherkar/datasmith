@@ -90,16 +90,20 @@ class RunResult:
     rejected: list[RejectedExample] = field(default_factory=list)
     feedback: list[str] = field(default_factory=list)
     attempts: int = 0
+    target_count: int | None = None
 
     def summary(self) -> JSON:
         accepted_scores = [
             item.metadata.get("judge", {}) for item in self.accepted if isinstance(item.metadata, dict)
         ]
         gaps = [score.get("gap") for score in accepted_scores if isinstance(score.get("gap"), int | float)]
+        target_met = len(self.accepted) >= self.target_count if self.target_count is not None else None
         return {
             "accepted": len(self.accepted),
             "rejected": len(self.rejected),
             "attempts": self.attempts,
+            "target_count": self.target_count,
+            "target_met": target_met,
             "avg_gap": sum(gaps) / len(gaps) if gaps else None,
             "rejection_reasons": _reason_counts(self.rejected),
             "feedback": self.feedback,

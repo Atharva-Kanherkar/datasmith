@@ -46,4 +46,15 @@ class OpenAICompatibleModel:
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"provider returned HTTP {exc.code}: {body}") from exc
-        return data["choices"][0]["message"]["content"]
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"provider request failed: {exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("provider returned invalid JSON") from exc
+
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("provider response missing choices[0].message.content") from exc
+        if not isinstance(content, str):
+            raise RuntimeError("provider response content must be a string")
+        return content

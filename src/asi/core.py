@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 from dataclasses import dataclass, field
 from typing import Any
@@ -15,6 +16,11 @@ class AcceptancePolicy:
     max_weak_score: float = 0.5
     min_strong_score: float = 0.65
     min_quality: str = "medium"
+
+    def __post_init__(self) -> None:
+        for name in ("min_gap", "max_weak_score", "min_strong_score"):
+            _validate_score(getattr(self, name), name)
+        _quality_rank(self.min_quality)
 
     def accepts(self, verdict: JudgeVerdict) -> bool:
         if not verdict.accepted():
@@ -41,13 +47,23 @@ class AgenticSelfInstruct:
     seed_batch_size: int = 3
     random_seed: int = 7
 
+    def __post_init__(self) -> None:
+        if self.weak_rollouts < 1:
+            raise ValueError("weak_rollouts must be at least 1")
+        if self.strong_rollouts < 1:
+            raise ValueError("strong_rollouts must be at least 1")
+        if self.max_attempts_per_example < 1:
+            raise ValueError("max_attempts_per_example must be at least 1")
+        if self.seed_batch_size < 1:
+            raise ValueError("seed_batch_size must be at least 1")
+
     def run(self, seeds: list[Example], *, target_count: int) -> RunResult:
         if not seeds:
             raise ValueError("at least one seed example is required")
         if target_count < 1:
             raise ValueError("target_count must be at least 1")
         rng = random.Random(self.random_seed)
-        result = RunResult()
+        result = RunResult(target_count=target_count)
         max_attempts = max(target_count * self.max_attempts_per_example, target_count)
 
         for attempt_index in range(1, max_attempts + 1):
@@ -119,11 +135,12 @@ class AgenticSelfInstruct:
                 result.accepted.append(candidate)
             else:
                 reason = verdict.reason or "judge rejected candidate"
+                reason_code = "judge_rejected" if not verdict.accepted() else "policy_rejected"
                 result.feedback.append(verdict.feedback or reason)
                 result.rejected.append(
                     RejectedExample(
                         candidate=candidate,
-                        reason_code="quality_rejected",
+                        reason_code=reason_code,
                         reason=reason,
                         weak_attempts=weak_attempts,
                         strong_attempts=strong_attempts,
@@ -137,8 +154,10 @@ class AgenticSelfInstruct:
         self, seeds: list[Example], feedback: list[str], target_count: int
     ) -> tuple[Example, str | None]:
         prompt = challenger_prompt(seeds, feedback, target_count)
-        raw = self.challenger.complete(prompt, role="challenger", metadata={"target_count": target_count})
         try:
+            raw = self.challenger.complete(
+                prompt, role="challenger", metadata={"target_count": target_count}
+            )
             parsed = json.loads(_strip_fences(raw))
             if not isinstance(parsed, dict):
                 return Example(input={}), "challenger returned non-object JSON"
@@ -150,7 +169,7 @@ class AgenticSelfInstruct:
         self, role: str, model: Model, candidate: Example, rollouts: int
     ) -> tuple[list[SolverAttempt], str | None]:
         attempts: list[SolverAttempt] = []
-        for index in range(1, max(1, rollouts) + 1):
+        for index in range(1, rollouts + 1):
             prompt = solver_prompt(role, candidate)
             try:
                 output = model.complete(
@@ -170,8 +189,8 @@ class AgenticSelfInstruct:
         strong_attempts: list[SolverAttempt],
     ) -> tuple[JudgeVerdict, str | None]:
         prompt = judge_prompt(candidate, weak_attempts, strong_attempts)
-        raw = self.judge.complete(prompt, role="judge", metadata={})
         try:
+            raw = self.judge.complete(prompt, role="judge", metadata={})
             parsed = json.loads(_strip_fences(raw))
             if not isinstance(parsed, dict):
                 return JudgeVerdict(verdict="reject"), "judge returned non-object JSON"
@@ -184,15 +203,18 @@ def _verdict_from_dict(data: dict[str, Any]) -> JudgeVerdict:
     verdict = str(data.get("verdict") or "reject")
     if verdict not in {"accept", "reject"}:
         raise ValueError("judge verdict must be accept or reject")
+    tags = data.get("tags", [])
+    if not isinstance(tags, list):
+        raise ValueError("judge tags must be a list of strings")
     return JudgeVerdict(
         verdict=verdict,
         weak_score=_optional_float(data.get("weak_score")),
         strong_score=_optional_float(data.get("strong_score")),
         gap=_optional_float(data.get("gap")),
-        quality=str(data["quality"]) if data.get("quality") else None,
+        quality=_normalize_quality(data.get("quality")),
         reason=str(data["reason"]) if data.get("reason") else None,
         feedback=str(data["feedback"]) if data.get("feedback") else None,
-        tags=[str(item) for item in data.get("tags", []) if isinstance(item, str)],
+        tags=[str(item) for item in tags if isinstance(item, str)],
         raw=dict(data),
     )
 
@@ -201,13 +223,29 @@ def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     parsed = float(value)
-    if parsed < 0 or parsed > 1:
-        raise ValueError("scores must be between 0 and 1")
+    _validate_score(parsed, "score")
     return parsed
 
 
+def _validate_score(value: float, name: str) -> None:
+    if not math.isfinite(value) or value < 0 or value > 1:
+        raise ValueError(f"{name} must be a finite number between 0 and 1")
+
+
+def _normalize_quality(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    quality = str(value).lower()
+    _quality_rank(quality)
+    return quality
+
+
 def _quality_rank(value: str | None) -> int:
-    return {"low": 0, "medium": 1, "high": 2}.get(value or "medium", 1)
+    quality = value or "medium"
+    ranks = {"low": 0, "medium": 1, "high": 2}
+    if quality not in ranks:
+        raise ValueError("quality must be one of: low, medium, high")
+    return ranks[quality]
 
 
 def _sample(seeds: list[Example], size: int, rng: random.Random) -> list[Example]:

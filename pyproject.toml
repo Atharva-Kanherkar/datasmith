@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agentic-self-instruct"
 version = "0.1.0"
-description = "Provider-agnostic Agentic Self-Instruct SDK and CLI for synthetic data generation from seeds and OpenTelemetry traces."
+description = "DataSmith: provider-agnostic SDK and CLI for synthetic data generation from seeds and OpenTelemetry traces."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

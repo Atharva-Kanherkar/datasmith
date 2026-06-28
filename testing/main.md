@@ -16,9 +16,10 @@
   - JSONL span/event files can be loaded as seed examples.
   - Semantic attributes such as prompts, completions, tool names, status, trace IDs, and span IDs are preserved in metadata.
 - The CLI supports:
-  - `asi run` for generation from JSONL or OTLP JSON seed files.
+  - `asi run` for generation from normalized JSONL seed files.
   - `asi ingest-otel` for converting OTEL-shaped traces into normalized seed JSONL.
-  - `asi init` for creating a starter config.
+  - `asi init` for creating a starter config scaffold. The current CLI run path is demo-only until
+    provider/config loading is added.
 - The repo includes complete OSS basics: README, license, contributing guide, code of conduct, security policy, examples, tests, pyproject, and package exports.
 
 ## Unit Tests
@@ -57,5 +58,7 @@
 
 ## Research Notes
 - Meta Autodata / Agentic Self-Instruct paper: `2606.25996v2.pdf`.
-- Core paper behavior implemented here: data scientist loop, challenger, weak solver, strong solver, judge, acceptance by weak/strong score gap, and feedback for later rounds.
+- Core paper behavior implemented here: the inner Agentic Self-Instruct loop with challenger, weak
+  solver, strong solver, judge, acceptance by weak/strong score gap, and feedback for later rounds.
+  The full data-scientist outer loop and meta-optimization stack are out of scope for this package.
 - The OSS package should avoid AgentClash-specific APIs and keep AgentClash as only an optional integration target in future work.
