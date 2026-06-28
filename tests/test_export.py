@@ -1014,4 +1014,52 @@ def test_cli_export_hf_passes_repo_and_private(monkeypatch, tmp_path, capsys) ->
 
     assert calls["create_repo"]["repo_id"] == "me/ds"
     assert calls["create_repo"]["private"] is True
+    card_upload = calls["uploads"][1]
+    card = card_upload["path_or_fileobj"].decode("utf-8")
+    assert f"source: `{run_dir.name}`" in card
+    assert str(tmp_path) not in card
     assert "exported 1 records to me/ds" in capsys.readouterr().out
+
+
+def test_cli_export_hf_omits_source_for_public_repo(monkeypatch, tmp_path) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeHfApi:
+        def __init__(self, token: str) -> None:
+            calls["token"] = token
+
+        def create_repo(self, **kwargs: object) -> None:
+            calls["create_repo"] = kwargs
+
+        def upload_file(self, **kwargs: object) -> None:
+            calls.setdefault("uploads", []).append(kwargs)
+
+    monkeypatch.setattr(export_module, "_load_hf_api", lambda: FakeHfApi)
+    monkeypatch.setenv("HF_TOKEN", "env-token")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "accepted.jsonl").write_text(
+        '{"input":"Prompt","expected":"Completion","metadata":{}}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "export",
+                "--from",
+                str(run_dir),
+                "--format",
+                "prompt_completion",
+                "--to",
+                "hf",
+                "--repo",
+                "me/public-ds",
+            ]
+        )
+        == 0
+    )
+
+    card = calls["uploads"][1]["path_or_fileobj"].decode("utf-8")
+    assert "source:" not in card
+    assert str(tmp_path) not in card

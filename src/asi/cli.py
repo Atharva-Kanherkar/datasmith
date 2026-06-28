@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
                 repo=args.repo,
                 private=args.private,
                 card_metadata={
-                    "source": str(args.from_path),
+                    "source": _card_source(args.from_path, private=args.private),
                     "run_summary": _read_run_summary(args.from_path),
                 },
             )
@@ -187,6 +187,12 @@ def _read_run_summary(source: str | Path) -> dict[str, object] | None:
     except json.JSONDecodeError:
         return None
     return data if isinstance(data, dict) else None
+
+
+def _card_source(source: str | Path, *, private: bool) -> str | None:
+    if not private:
+        return None
+    return Path(source).name
 
 
 def _write_starter_config(path: Path) -> None:
